@@ -161,6 +161,12 @@ const PLACEHOLDER_VISUAL_BY_TYPE: Record<string, string[]> = {
 
 const PLACEHOLDER_BUTTON_VISUAL = ["bg-zinc-100", "text-[#3F3F46]", "text-[13px]", "rounded-[6px]", "border-0", "cursor-pointer"];
 
+// Each named shape becomes an absolutely-positioned sibling. Buttons are emitted
+// before their decorative labels, so the labels stack on top and would swallow
+// clicks. Marking non-interactive shapes click-transparent lets the click reach
+// the button underneath. paper-sync preserves this class (not in its strip list).
+const NON_INTERACTIVE_BASE = ["pointer-events-none"];
+
 function renderShape(shape: Shape, interactions: Interaction[]): string {
   const ix = shapeIsInteractive(shape, interactions);
   const dest = ix ? inferDestinationRoute(ix.action) : null;
@@ -180,11 +186,11 @@ function renderShape(shape: Shape, interactions: Interaction[]): string {
   }
 
   if (shape.type === "text") {
-    const cls = [...layout, ...(PLACEHOLDER_VISUAL_BY_TYPE.text ?? [])].join(" ");
+    const cls = [...layout, ...NON_INTERACTIVE_BASE, ...(PLACEHOLDER_VISUAL_BY_TYPE.text ?? [])].join(" ");
     return `      <div data-shape={${safeName}} className="${cls}">${escapeJsxText(text)}</div>`;
   }
 
-  const cls = [...layout, ...(PLACEHOLDER_VISUAL_BY_TYPE.rectangle ?? [])].join(" ");
+  const cls = [...layout, ...NON_INTERACTIVE_BASE, ...(PLACEHOLDER_VISUAL_BY_TYPE.rectangle ?? [])].join(" ");
   return `      <div data-shape={${safeName}} className="${cls}" />`;
 }
 
