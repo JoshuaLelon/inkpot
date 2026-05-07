@@ -167,8 +167,48 @@ const PLACEHOLDER_BUTTON_VISUAL = ["bg-zinc-100", "text-[#3F3F46]", "text-[13px]
 // the button underneath. paper-sync preserves this class (not in its strip list).
 const NON_INTERACTIVE_BASE = ["pointer-events-none"];
 
-function renderShape(shape: Shape, interactions: Interaction[]): string {
-  const ix = shapeIsInteractive(shape, interactions);
+const PLACEHOLDER_INPUT_VISUAL = ["bg-zinc-200", "rounded-[4px]", "p-3", "outline-none", "resize-none", "text-[14px]", "text-[#0A0A0A]"];
+
+// Name-based heuristics. Penpot has no concept of form inputs — the wireframe
+// expresses intent through shape names. A shape whose name ends with Field /
+// Input / Textarea becomes a real <input>/<textarea> with state. A non-
+// navigating shape whose name ends with Button and contains submit/send/save
+// becomes a real <button> that captures and clears the form.
+function detectInputKind(shape: Shape, interactions: Interaction[]): "input" | "textarea" | null {
+  if (shapeIsInteractive(shape, interactions)) return null;
+  const m = shape.name.match(/(Textarea|Input|Field)$/);
+  if (!m) return null;
+  if (m[1] === "Textarea") return "textarea";
+  if (m[1] === "Input") return "input";
+  return shape.bbox.h > 80 ? "textarea" : "input";
+}
+
+function detectSubmitButton(shape: Shape, interactions: Interaction[]): boolean {
+  if (shapeIsInteractive(shape, interactions)) return false;
+  if (!/Button$/.test(shape.name)) return false;
+  return /(submit|send|save)/i.test(shape.name);
+}
+
+// For a shape named e.g. `writeField`, find a sibling `writePlaceholder` whose
+// text content can be promoted to the input's HTML placeholder attribute.
+// The companion is then skipped at render time so its text doesn't double up.
+function findPlaceholderCompanion(shape: Shape, allShapes: Shape[]): Shape | null {
+  const m = shape.name.match(/^(.*?)(Field|Input|Textarea)$/);
+  if (!m) return null;
+  const prefix = m[1];
+  return allShapes.find((s) => s.name === `${prefix}Placeholder`) ?? null;
+}
+
+interface RenderContext {
+  interactions: Interaction[];
+  allShapes: Shape[];
+  skipShapeIds: Set<string>;
+}
+
+function renderShape(shape: Shape, ctx: RenderContext): string | null {
+  if (ctx.skipShapeIds.has(shape.id)) return null;
+
+  const ix = shapeIsInteractive(shape, ctx.interactions);
   const dest = ix ? inferDestinationRoute(ix.action) : null;
 
   const safeName = JSON.stringify(shape.name);
@@ -188,6 +228,25 @@ function renderShape(shape: Shape, interactions: Interaction[]): string {
     return `      <button data-shape={${safeName}} onClick={${onClick}} className="${cls}">${escapeJsxText(text)}</button>`;
   }
 
+  const inputKind = detectInputKind(shape, ctx.interactions);
+  if (inputKind) {
+    const companion = findPlaceholderCompanion(shape, ctx.allShapes);
+    const placeholderText = companion?.textContent ?? "";
+    const placeholderAttr = placeholderText ? ` placeholder=${JSON.stringify(placeholderText)}` : "";
+    const cls = [...layout, ...PLACEHOLDER_INPUT_VISUAL].join(" ");
+    const onChange = `(e) => setFormState((s) => ({ ...s, [${safeName}]: e.target.value }))`;
+    if (inputKind === "textarea") {
+      return `      <textarea data-shape={${safeName}} className="${cls}"${placeholderAttr} value={formState[${safeName}] ?? ""} onChange={${onChange}} />`;
+    }
+    return `      <input data-shape={${safeName}} type="text" className="${cls}"${placeholderAttr} value={formState[${safeName}] ?? ""} onChange={${onChange}} />`;
+  }
+
+  if (detectSubmitButton(shape, ctx.interactions)) {
+    const cls = [...layout, ...PLACEHOLDER_BUTTON_VISUAL, "flex", "items-center", "justify-center"].join(" ");
+    const onClick = `() => { console.log(${safeName}, formState); setFormState({}); }`;
+    return `      <button data-shape={${safeName}} type="button" onClick={${onClick}} className="${cls}">${escapeJsxText(text)}</button>`;
+  }
+
   if (shape.type === "text") {
     const cls = [...layout, ...NON_INTERACTIVE_BASE, ...(PLACEHOLDER_VISUAL_BY_TYPE.text ?? [])].join(" ");
     return `      <div data-shape={${safeName}} className="${cls}">${escapeJsxText(text)}</div>`;
@@ -203,15 +262,36 @@ function escapeJsxText(s: string): string {
 
 function renderPage(boardName: string, board: { width: number; height: number }, shapes: Shape[], interactions: Interaction[]): string {
   const interactionsForBoard = interactions.filter((ix) => ix.fromBoardName === boardName);
-  const body = shapes.map((s) => renderShape(s, interactionsForBoard)).join("\n");
+
+  const skipShapeIds = new Set<string>();
+  let hasFormState = false;
+  for (const s of shapes) {
+    if (detectInputKind(s, interactionsForBoard)) {
+      hasFormState = true;
+      const companion = findPlaceholderCompanion(s, shapes);
+      if (companion) skipShapeIds.add(companion.id);
+    }
+    if (detectSubmitButton(s, interactionsForBoard)) {
+      hasFormState = true;
+    }
+  }
+
+  const ctx: RenderContext = { interactions: interactionsForBoard, allShapes: shapes, skipShapeIds };
+  const body = shapes
+    .map((s) => renderShape(s, ctx))
+    .filter((line): line is string => line !== null)
+    .join("\n");
+
+  const stateImport = hasFormState ? `\nimport { useState } from "react";` : "";
+  const stateDecl = hasFormState ? `  const [formState, setFormState] = useState<Record<string, string>>({});\n` : "";
 
   return `"use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";${stateImport}
 
 export default function ${pascalCase(boardName)}Page() {
   const router = useRouter();
-  return (
+${stateDecl}  return (
     <main className="grid place-items-center min-h-screen bg-zinc-950">
       <div className="relative bg-white shadow-2xl rounded-3xl overflow-hidden w-[${Math.round(board.width)}px] h-[${Math.round(board.height)}px]">
 ${body}
