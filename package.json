@@ -1,0 +1,21 @@
+{
+  "name": "inkpot",
+  "version": "0.0.1",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "inkpot": "./bin/cli.ts"
+  },
+  "scripts": {
+    "cli": "bun bin/cli.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.1"
+  }
+}
