@@ -181,8 +181,11 @@ function renderShape(shape: Shape, interactions: Interaction[]): string {
     else if (dest?.startsWith("url:")) onClick = `() => window.open(${JSON.stringify(dest.slice(4))}, "_blank", "noopener,noreferrer")`;
     else if (dest) onClick = `() => router.push(${JSON.stringify(dest)})`;
     else onClick = "() => {}";
+    // Button text comes only from the shape's own textContent. Don't fall back to
+    // shape.name — the wireframe usually carries visible text in sibling label
+    // shapes, and a centered shape-name fallback paints on top of those labels.
     const cls = [...layout, ...PLACEHOLDER_BUTTON_VISUAL, "flex", "items-center", "justify-center"].join(" ");
-    return `      <button data-shape={${safeName}} onClick={${onClick}} className="${cls}">${escapeJsxText(text || shape.name)}</button>`;
+    return `      <button data-shape={${safeName}} onClick={${onClick}} className="${cls}">${escapeJsxText(text)}</button>`;
   }
 
   if (shape.type === "text") {
